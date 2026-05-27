@@ -6,6 +6,9 @@ this tool lets you numerically propagate each frame, pick the best plane,
 interpolate planes for the remaining frames, and re-export the whole sequence
 refocused.
 
+// Add image: 
+![Interface Screenshot](doc/screenshot.png)
+
 ## Install
 
 ```bash
