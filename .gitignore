@@ -1,0 +1,26 @@
+# App-internal scratch (keep the folder, ignore contents)
+.refocus/*
+!.refocus/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Numpy dumps / data
+*.npy
+
+# Windows Zone.Identifier alternate data streams
+*:Zone.Identifier
+
+# Editor
+.vscode/
+.idea/
+*.swp

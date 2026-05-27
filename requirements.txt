@@ -1,0 +1,11 @@
+PySide6>=6.6
+numpy
+scipy
+scikit-image
+opencv-python
+tifffile
+matplotlib
+# Optional GPU acceleration. Install the CUDA build matching your system from
+# https://pytorch.org/get-started/locally/ ; the app falls back to NumPy if
+# torch / CUDA is unavailable.
+torch
