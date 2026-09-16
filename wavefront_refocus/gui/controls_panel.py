@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QProgressBar,
     QPushButton,
     QSpinBox,
@@ -48,10 +50,32 @@ class ControlsPanel(QWidget):
         self.nplanes_spin.setRange(3, 1001)
         self.nplanes_spin.setValue(config.DEFAULT_N_PLANES)
 
+        # Where the sweep is centred. By default it follows the frame's
+        # current position (chosen or interpolated); ticking the box pins it
+        # to an explicit offset instead.
+        self.center_check = QCheckBox("Centre sweep on")
+        self.center_check.setToolTip(
+            "Unticked: the sweep is centred on the frame's current position —\n"
+            "its chosen or interpolated plane, or the base plane if it has\n"
+            "none yet.\n"
+            "Ticked: centre every sweep on the offset given here instead."
+        )
+        self.center_spin = self._dspin(-10000.0, 10000.0, 0.0, " µm", 4)
+        self.center_spin.setEnabled(False)
+        self.center_spin.setToolTip(
+            "Sweep centre, relative to the frame's base plane (sample space)."
+        )
+        self.center_check.toggled.connect(self.center_spin.setEnabled)
+
+        center_row = QHBoxLayout()
+        center_row.addWidget(self.center_check)
+        center_row.addWidget(self.center_spin, 1)
+
         sweep_box = QGroupBox("Propagation sweep (sample space)")
         sf = QFormLayout(sweep_box)
         sf.addRow("Min. propagation dist. (half-range)", self.range_spin)
         sf.addRow("Number of planes", self.nplanes_spin)
+        sf.addRow(center_row)
 
         self.compute_btn = QPushButton("Compute current image")
         self.compute_btn.clicked.connect(self.compute_requested)
@@ -109,6 +133,26 @@ class ControlsPanel(QWidget):
             half_range_sample=self.range_spin.value() * 1e-6,
             n_planes=self.nplanes_spin.value(),
         )
+
+    def use_custom_center(self) -> bool:
+        """True when the sweep centre is pinned instead of following the frame."""
+        return self.center_check.isChecked()
+
+    def center_dz_sample(self) -> float:
+        """The pinned sweep centre, in metres (sample space)."""
+        return self.center_spin.value() * 1e-6
+
+    def show_frame_center(self, dz_sample: float) -> None:
+        """Display a frame's current position as the sweep centre.
+
+        Only writes the spin box while it is *not* pinned, so an explicit
+        centre the user typed survives switching frames.
+        """
+        if self.center_check.isChecked():
+            return
+        self.center_spin.blockSignals(True)
+        self.center_spin.setValue(dz_sample * 1e6)
+        self.center_spin.blockSignals(False)
 
     def set_optical_params(self, optics: OpticalParams) -> None:
         self.pixel_spin.setValue(optics.pixel_pitch * 1e6)

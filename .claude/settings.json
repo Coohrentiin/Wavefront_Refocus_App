@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp wavefront_refocus/io/export.py /tmp/exp.bak)",
+      "Bash(python -)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}

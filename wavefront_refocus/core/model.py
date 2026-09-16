@@ -49,24 +49,39 @@ class SweepParams:
 
 @dataclass
 class PropagationResult:
-    """Mirror of the dict returned by ``compute_opd_stack``."""
+    """Mirror of the dict returned by ``compute_opd_stack``.
+
+    ``dz_sample_array`` is relative to the frame's **base** plane: the engine
+    sweeps symmetrically about 0, and ``center_dz_sample`` — the position the
+    sweep was centred on — is added back here. So the centre plane of a sweep
+    recentred on +4 µm reads 4 µm, not 0, and choosing a plane stores a
+    base-relative displacement exactly as before.
+    """
 
     opd_stack: np.ndarray        # (Z, H, W) float32 nm, zero-mean per slice
-    dz_sample_array: np.ndarray  # (Z,) m, sample space, centred on 0
+    dz_sample_array: np.ndarray  # (Z,) m, sample space, rel. to the base plane
     dz_image_array: np.ndarray   # (Z,) m, image space
-    z0_index: int                # index of the centre (dz == 0) plane
+    z0_index: int                # index of the sweep's centre plane
     backend: str
     N: int
+    center_dz_sample: float = 0.0  # m, sample space, what the sweep centres on
 
     @classmethod
-    def from_dict(cls, d: dict) -> "PropagationResult":
+    def from_dict(cls, d: dict, center_dz_sample: float = 0.0,
+                  magnification: float = 1.0) -> "PropagationResult":
+        center = float(center_dz_sample)
+        dz_sample = np.asarray(d["dz_sample_array"]) + center
+        # Keep the image-space array the exact counterpart of the shifted
+        # sample-space one (dz_image = dz_sample * M²).
+        dz_image = np.asarray(d["dz_image_array"]) + center * magnification ** 2
         return cls(
             opd_stack=d["opd_stack"],
-            dz_sample_array=np.asarray(d["dz_sample_array"]),
-            dz_image_array=np.asarray(d["dz_image_array"]),
+            dz_sample_array=dz_sample,
+            dz_image_array=dz_image,
             z0_index=int(d["z0_index"]),
             backend=str(d["backend"]),
             N=int(d["N"]),
+            center_dz_sample=center,
         )
 
 
@@ -106,8 +121,11 @@ class Session:
     sweep: Optional[SweepParams] = None
     input_format: Optional[str] = None
     distances_path: Optional[str] = None
+    # Position of the current frame within ``frames`` — NOT its frame index.
+    # The two differ on a partial load, where ``frames[0].index`` may be 51.
     current_index: int = 0
     smoothing_factor: float = 0.0
+    interp_method: str = "spline"
     # Opaque loader produced by io.inputs; loader(frame) -> (phase, amp).
     loader: Any = None
 
@@ -119,3 +137,14 @@ class Session:
 
     def chosen_frames(self) -> list[Frame]:
         return [f for f in self.frames if f.is_chosen]
+
+    def position_of(self, frame_index: int) -> Optional[int]:
+        """List position of the frame numbered ``frame_index``, if loaded."""
+        for pos, f in enumerate(self.frames):
+            if f.index == frame_index:
+                return pos
+        return None
+
+    @property
+    def frame_indices(self) -> list[int]:
+        return [f.index for f in self.frames]

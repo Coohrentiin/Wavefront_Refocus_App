@@ -16,8 +16,20 @@ def build_compute_kwargs(
     sweep: SweepParams,
     *,
     use_torch: bool = True,
+    center_dz_sample: float = 0.0,
 ) -> dict:
-    """Assemble keyword arguments for ``compute_opd_stack``."""
+    """Assemble keyword arguments for ``compute_opd_stack``.
+
+    ``compute_opd_stack`` always sweeps symmetrically about the plane of the
+    field it is handed. To sweep about ``center_dz_sample`` instead (sample
+    space, relative to the frame's base plane) we first propagate the field to
+    that plane and sweep about *it* — so a ±2 µm sweep recentred on +4 µm
+    covers +2…+6 µm without recomputing the planes already known to be bad.
+    """
+    if center_dz_sample:
+        field = refocus_one(phase, amp, float(center_dz_sample), optics)
+        phase, amp = np.angle(field), np.abs(field)
+
     sw = resolve_sweep(sweep.half_range_sample, sweep.n_planes)
     return dict(
         phase=phase,

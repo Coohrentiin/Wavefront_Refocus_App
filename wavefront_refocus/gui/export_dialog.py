@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -33,6 +34,7 @@ class ExportDialog(QDialog):
         self.setWindowTitle("Export refocused folder")
         self.out_format: str = default_format or FMT_STACK
         self.out_dir: str = ""
+        self.keep_original_names: bool = False
 
         self.combo = QComboBox()
         for fmt in (FMT_INTENSITY_OPD, FMT_INTENSITY_PHASE, FMT_STACK, FMT_STACK_FOLDER):
@@ -52,9 +54,18 @@ class ExportDialog(QDialog):
         dlay.addWidget(self.dir_edit)
         dlay.addWidget(btn)
 
+        self.keep_names_check = QCheckBox("Keep original file names")
+        self.keep_names_check.setToolTip(
+            "Reuse each input file's name instead of frame_0000.tif, …\n"
+            "Frames with no source filename (a slice of a multi-frame stack)\n"
+            "keep the indexed name, and repeats are suffixed _2, _3, … so\n"
+            "nothing is overwritten."
+        )
+
         form = QFormLayout()
         form.addRow("Output format", self.combo)
         form.addRow("Target directory", dir_row)
+        form.addRow("File names", self.keep_names_check)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_accept)
@@ -77,4 +88,5 @@ class ExportDialog(QDialog):
             return
         self.out_format = self.combo.currentData()
         self.out_dir = self.dir_edit.text()
+        self.keep_original_names = self.keep_names_check.isChecked()
         self.accept()

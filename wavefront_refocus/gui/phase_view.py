@@ -10,12 +10,14 @@ from matplotlib.backends.backend_qtagg import (
 )
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollBar,
     QSlider,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -50,23 +52,52 @@ class PhaseView(QWidget):
         self._raw_data = None
         self._last_data = None
         self._last_title = ""
+        # Frame index per slider position; None means position == index.
+        self._frame_indices = None
 
-        # vertical plane scrollbar
+        # vertical plane scrollbar, with step buttons above/below it
         self.z_bar = QScrollBar(Qt.Vertical)
         self.z_bar.setEnabled(False)
         self.z_bar.valueChanged.connect(self._on_z)
+
+        self.z_up_btn = self._step_button(
+            "▲", "Previous plane (Up / PgUp)", lambda: self.step_z(-1)
+        )
+        self.z_down_btn = self._step_button(
+            "▼", "Next plane (Down / PgDown)", lambda: self.step_z(+1)
+        )
+        self.z_label = QLabel("z —")
+        self.z_label.setAlignment(Qt.AlignHCenter)
+
+        z_col = QWidget()
+        zcl = QVBoxLayout(z_col)
+        zcl.setContentsMargins(0, 0, 0, 0)
+        zcl.setSpacing(2)
+        zcl.addWidget(self.z_up_btn)
+        zcl.addWidget(self.z_bar, 1)
+        zcl.addWidget(self.z_down_btn)
+        zcl.addWidget(self.z_label)
 
         canvas_row = QWidget()
         crl = QHBoxLayout(canvas_row)
         crl.setContentsMargins(0, 0, 0, 0)
         crl.addWidget(self.canvas, 1)
-        crl.addWidget(self.z_bar)
+        crl.addWidget(z_col)
 
-        # horizontal frame slider
+        # horizontal frame slider, flanked by step buttons
         self.frame_slider = QSlider(Qt.Horizontal)
         self.frame_slider.setEnabled(False)
         self.frame_slider.valueChanged.connect(self._on_frame)
         self.frame_label = QLabel("frame —")
+
+        self.frame_prev_btn = self._step_button(
+            "◀", "Previous frame (Left)", lambda: self.step_frame(-1)
+        )
+        self.frame_next_btn = self._step_button(
+            "▶", "Next frame (Right)", lambda: self.step_frame(+1)
+        )
+        self.frame_prev_btn.setEnabled(False)
+        self.frame_next_btn.setEnabled(False)
 
         self.choose_btn = QPushButton("Choose this plane")
         self.choose_btn.setEnabled(False)
@@ -85,7 +116,9 @@ class PhaseView(QWidget):
 
         bottom = QHBoxLayout()
         bottom.addWidget(QLabel("Frame:"))
+        bottom.addWidget(self.frame_prev_btn)
         bottom.addWidget(self.frame_slider, 1)
+        bottom.addWidget(self.frame_next_btn)
         bottom.addWidget(self.frame_label)
         bottom.addWidget(self.range_btn)
         bottom.addWidget(self.choose_btn)
@@ -98,23 +131,76 @@ class PhaseView(QWidget):
 
         self._block = False
 
+        self._install_shortcuts()
+
+    @staticmethod
+    def _step_button(text: str, tooltip: str, slot) -> QToolButton:
+        b = QToolButton()
+        b.setText(text)
+        b.setToolTip(tooltip)
+        b.setAutoRepeat(True)          # hold to scrub
+        b.setAutoRepeatDelay(400)
+        b.setAutoRepeatInterval(120)
+        b.clicked.connect(slot)
+        return b
+
+    def _install_shortcuts(self) -> None:
+        """Arrow keys step the frame, Up/Down and PgUp/PgDn step the plane."""
+        for keys, slot in (
+            (("Left",), lambda: self.step_frame(-1)),
+            (("Right",), lambda: self.step_frame(+1)),
+            (("Up", "PgUp"), lambda: self.step_z(-1)),
+            (("Down", "PgDown"), lambda: self.step_z(+1)),
+        ):
+            for key in keys:
+                sc = QShortcut(QKeySequence(key), self)
+                sc.setContext(Qt.WidgetWithChildrenShortcut)
+                sc.activated.connect(slot)
+
     # ── frame slider ──
-    def set_frame_count(self, n: int) -> None:
+    # The slider works in list POSITIONS (0..n-1); the label shows the frame's
+    # real index, which differs on a partial load (position 0 may be frame 51).
+    def set_frame_count(self, n: int, frame_indices=None) -> None:
         self._block = True
         self.frame_slider.setEnabled(n > 0)
         self.frame_slider.setRange(0, max(0, n - 1))
         self._block = False
+        self._frame_indices = list(frame_indices) if frame_indices else None
+        self._sync_frame_buttons()
 
-    def set_current_frame(self, index: int) -> None:
+    def _label_for(self, position: int) -> str:
+        if self._frame_indices and 0 <= position < len(self._frame_indices):
+            return f"frame {self._frame_indices[position]}"
+        return f"frame {position}"
+
+    def set_current_frame(self, position: int, frame_index: int | None = None) -> None:
         self._block = True
-        self.frame_slider.setValue(index)
-        self.frame_label.setText(f"frame {index}")
+        self.frame_slider.setValue(position)
+        self.frame_label.setText(
+            f"frame {frame_index}" if frame_index is not None
+            else self._label_for(position)
+        )
         self._block = False
+        self._sync_frame_buttons()
+
+    def step_frame(self, delta: int) -> None:
+        """Move the frame slider by ``delta``, clamped to its range."""
+        if not self.frame_slider.isEnabled():
+            return
+        lo, hi = self.frame_slider.minimum(), self.frame_slider.maximum()
+        self.frame_slider.setValue(max(lo, min(self.frame_slider.value() + delta, hi)))
 
     def _on_frame(self, value: int):
+        self._sync_frame_buttons()
         if not self._block:
-            self.frame_label.setText(f"frame {value}")
+            self.frame_label.setText(self._label_for(value))
             self.frame_changed.emit(value)
+
+    def _sync_frame_buttons(self) -> None:
+        on = self.frame_slider.isEnabled()
+        v = self.frame_slider.value()
+        self.frame_prev_btn.setEnabled(on and v > self.frame_slider.minimum())
+        self.frame_next_btn.setEnabled(on and v < self.frame_slider.maximum())
 
     # ── plane scrollbar ──
     def enable_planes(self, n_planes: int, z0: int) -> None:
@@ -125,6 +211,7 @@ class PhaseView(QWidget):
         self.choose_btn.setEnabled(True)
         self.choose_btn.setStyleSheet(self._choose_active_style)
         self._block = False
+        self._sync_z_buttons()
 
     def disable_planes(self) -> None:
         self._block = True
@@ -132,13 +219,31 @@ class PhaseView(QWidget):
         self.choose_btn.setEnabled(False)
         self.choose_btn.setStyleSheet(self._choose_idle_style)
         self._block = False
+        self.z_label.setText("z —")
+        self._sync_z_buttons()
 
     def current_z(self) -> int:
         return self.z_bar.value()
 
+    def step_z(self, delta: int) -> None:
+        """Move the plane scrollbar by ``delta``, clamped to its range."""
+        if not self.z_bar.isEnabled():
+            return
+        lo, hi = self.z_bar.minimum(), self.z_bar.maximum()
+        self.z_bar.setValue(max(lo, min(self.z_bar.value() + delta, hi)))
+
     def _on_z(self, value: int):
+        self._sync_z_buttons()
         if not self._block:
             self.z_changed.emit(value)
+
+    def _sync_z_buttons(self) -> None:
+        on = self.z_bar.isEnabled()
+        v = self.z_bar.value()
+        self.z_up_btn.setEnabled(on and v > self.z_bar.minimum())
+        self.z_down_btn.setEnabled(on and v < self.z_bar.maximum())
+        if on:
+            self.z_label.setText(f"z {v}/{self.z_bar.maximum()}")
 
     # ── image ──
     def show_image(self, data: np.ndarray, title: str = "") -> None:

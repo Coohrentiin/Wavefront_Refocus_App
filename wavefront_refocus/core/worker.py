@@ -22,14 +22,25 @@ class PropagationController(QObject):
         super().__init__(parent)
         self._thread: QThread | None = None
         self._worker: PropagationWorker | None = None
+        self._center_dz_sample: float = 0.0
+        self._magnification: float = 1.0
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.isRunning()
 
-    def start(self, kwargs: dict) -> bool:
-        """Start a sweep. Returns False if one is already running."""
+    def start(self, kwargs: dict, center_dz_sample: float = 0.0,
+              magnification: float = 1.0) -> bool:
+        """Start a sweep. Returns False if one is already running.
+
+        ``center_dz_sample`` is the sample-space plane the sweep is centred on;
+        it is folded back into the result's dz arrays so they stay relative to
+        the frame's base plane.
+        """
         if self.is_running():
             return False
+
+        self._center_dz_sample = float(center_dz_sample)
+        self._magnification = float(magnification)
 
         self._thread = QThread()
         self._worker = PropagationWorker(kwargs)
@@ -50,7 +61,13 @@ class PropagationController(QObject):
 
     @Slot(object)
     def _on_finished(self, result: object) -> None:
-        wrapped = PropagationResult.from_dict(result) if result is not None else None
+        wrapped = (
+            PropagationResult.from_dict(
+                result, self._center_dz_sample, self._magnification
+            )
+            if result is not None
+            else None
+        )
         self._teardown()
         if wrapped is not None:
             self.finished.emit(wrapped)

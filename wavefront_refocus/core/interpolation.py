@@ -1,9 +1,11 @@
-"""Spline interpolation of chosen planes across frame indices.
+"""Interpolation of chosen planes across frame indices.
 
-Fits a smoothing spline to the (frame index, chosen sample-space displacement)
-pairs of the user-chosen frames and evaluates it at every other frame index.
-Beyond the chosen range we use explicit linear extrapolation from the two
-nearest chosen points rather than trusting spline extrapolation.
+Fits a curve to the (frame index, chosen sample-space displacement) pairs of
+the user-chosen frames and evaluates it at every other frame index. Two methods
+are offered: a smoothing spline (:data:`METHOD_SPLINE`) and straight
+piecewise-linear interpolation (:data:`METHOD_LINEAR`). Beyond the chosen range
+both use explicit linear extrapolation from the two nearest chosen points
+rather than trusting spline extrapolation.
 """
 from __future__ import annotations
 
@@ -11,6 +13,10 @@ from typing import Callable, Dict, Sequence
 
 import numpy as np
 from scipy.interpolate import UnivariateSpline
+
+METHOD_SPLINE = "spline"
+METHOD_LINEAR = "linear"
+METHODS = (METHOD_SPLINE, METHOD_LINEAR)
 
 
 def _linear_extrap(x: np.ndarray, y: np.ndarray, q: float) -> float:
@@ -31,13 +37,21 @@ def build_evaluator(
     chosen_idx: Sequence[float],
     chosen_value: Sequence[float],
     smoothing: float = 0.0,
+    method: str = METHOD_SPLINE,
 ) -> Callable[[float], float]:
     """Return ``f(x) -> value`` interpolating the chosen points.
 
-    Uses a cubic smoothing spline for ≥4 points, linear interpolation for
-    2–3, and a constant for 1. Beyond the chosen range it switches to explicit
-    linear extrapolation from the two nearest endpoints.
+    With ``method="spline"`` (the default) this uses a cubic smoothing spline
+    for ≥4 points, falling back to linear interpolation for 2–3 points and a
+    constant for 1. With ``method="linear"`` the points are always joined by
+    straight segments, so the curve passes exactly through every chosen plane
+    and never overshoots between them (``smoothing`` is then ignored).
+
+    Beyond the chosen range both methods switch to explicit linear
+    extrapolation from the two nearest endpoints.
     """
+    if method not in METHODS:
+        raise ValueError(f"unknown interpolation method {method!r}")
     if len(chosen_idx) == 0:
         raise ValueError("need at least one chosen frame to interpolate")
 
@@ -54,7 +68,7 @@ def build_evaluator(
 
     lo, hi = x[0], x[-1]
 
-    if len(x) >= 4:
+    if len(x) >= 4 and method == METHOD_SPLINE:
         spl = UnivariateSpline(x, y, s=float(smoothing), k=3, ext=0)
         inner = lambda q: float(spl(q))
     elif len(x) >= 2:
@@ -76,10 +90,11 @@ def fit_and_eval(
     chosen_dz_sample: Sequence[float],
     all_idx: Sequence[int],
     smoothing: float = 0.0,
+    method: str = METHOD_SPLINE,
 ) -> Dict[int, float]:
     """Interpolate/extrapolate the sample-space displacement for every index.
 
     Returns a dict mapping (int) frame index -> value.
     """
-    evaluate = build_evaluator(chosen_idx, chosen_dz_sample, smoothing)
+    evaluate = build_evaluator(chosen_idx, chosen_dz_sample, smoothing, method)
     return {int(i): evaluate(float(i)) for i in all_idx}
